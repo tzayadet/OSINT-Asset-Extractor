@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSINT Asset Extractor // Web Node</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #121212; --bg-panel: #1e1e1e; --bg-console: #0d0d0d;
+            --text-main: #cccccc; --text-dim: #888888; --text-label: #aaaaaa;
+            --accent-green: #81c784; --accent-red: #cf6679; --accent-orange: #ffb74d;
+            --border: #333333; --input-bg: #252525;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: var(--bg-main); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Layout */
+        .sidebar { width: 320px; background: var(--bg-panel); padding: 20px; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+        .main { flex: 1; display: flex; flex-direction: column; background: var(--bg-console); }
+        
+        /* Typography & Components */
+        h3 { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 15px; font-weight: 600; }
+        label { font-size: 12px; color: var(--text-label); display: block; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); font-family: 'Consolas', monospace; font-size: 13px; border-radius: 4px; margin-bottom: 15px; outline: none; }
+        input:focus, select:focus { border-color: #555; }
+        
+        .btn { width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: var(--text-main); font-weight: 600; cursor: pointer; border-radius: 4px; margin-bottom: 10px; transition: 0.2s; }
+        .btn:hover { background: #3d3d3d; }
+        .btn.active { background: #3a1c1c; border-color: var(--accent-red); color: var(--accent-red); }
+        
+        /* Console */
+        .console-header { height: 40px; background: #1a1a1a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid var(--border); }
+        .console-header span { font-family: 'Consolas', monospace; font-size: 12px; color: #666; }
+        .status { font-family: 'Consolas', monospace; font-size: 12px; color: #555; }
+        .status.running { color: var(--accent-green); }
+        .status.failed { color: var(--accent-red); }
+        
+        #console { flex: 1; padding: 15px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+        .log-info { color: #ccc; }
+        .log-success { color: var(--accent-green); }
+        .log-error { color: var(--accent-red); }
+        .log-warn { color: var(--accent-orange); }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-console); }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h3>CONFIGURACIÓN DE EXTRACCIÓN</h3>
+        
+        <label>Objetivo (URL)</label>
+        <input type="text" id="targetUrl" placeholder="https://objetivo.com">
+        
+        <label>Filtro de Activos</label>
+        <select id="fileType">
+            <option value="ALL">TODOS (ALL)</option>
+            <option value="PDF">DOCUMENTOS (PDF/DOC)</option>
+            <option value="IMG">IMÁGENES (IMG)</option>
+            <option value="MEDIA">ENLACES MEDIA</option>
+        </select>
+
+        <label>Proxy CORS (Navegador)</label>
+        <select id="corsProxy">
+            <option value="https://api.allorigins.win/raw?url=">AllOrigins (Default)</option>
+            <option value="https://corsproxy.io/?">CorsProxy.io</option>
+        </select>
+
+        <div style="flex: 1;"></div>
+        
+        <button class="btn" id="btnStart" onclick="toggleTask()">INICIAR EXTRACCIÓN</button>
+        <button class="btn" onclick="clearConsole()">LIMPIAR CONSOLA</button>
+    </div>
+
+    <div class="main">
+        <div class="console-header">
+            <span>TELEMETRÍA Y LOGS DE EJECUCIÓN</span>
+            <span class="status" id="statusIndicator">● IDLE</span>
+        </div>
+        <div id="console"></div>
+    </div>
+
+    <script>
+        let isRunning = false;
+        const consoleEl = document.getElementById('console');
+        const statusEl = document.getElementById('statusIndicator');
+        const btnStart = document.getElementById('btnStart');
+
+        function log(msg, level = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.className = `log-${level}`;
+            line.textContent = `[${time}] [${level.toUpperCase()}] ${msg}`;
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function clearConsole() {
+            consoleEl.innerHTML = '';
+        }
+
+        function setStatus(text, cls) {
+            statusEl.textContent = `● ${text}`;
+            statusEl.className = `status ${cls}`;
+        }
+
+        async function toggleTask() {
+            if (isRunning) {
+                isRunning = false;
+                btnStart.textContent = "INICIAR EXTRACCIÓN";
+                btnStart.classList.remove('active');
+                setStatus("ABORTED", "failed");
+                log("Proceso detenido por el operador.", "warn");
+                return;
+            }
+
+            const url = document.getElementById('targetUrl').value.trim();
+            if (!url) { log("URL objetivo no definida.", "error"); return; }
+
+            isRunning = true;
+            btnStart.textContent = "DETENER PROCESO";
+            btnStart.classList.add('active');
+            setStatus("RUNNING", "running");
+            
+            await executeExtraction(url);
+        }
+
+        async function executeExtraction(url) {
+            const filter = document.getElementById('fileType').value;
+            const proxy = document.getElementById('corsProxy').value;
+            const proxyUrl = proxy + encodeURIComponent(url);
+            
+            log(`Iniciando vector de extracción: ${url}`);
+            log(`Filtro: ${filter} | Proxy: Activo`);
+
+            const zip = new JSZip();
+            let assetsFound = 0;
+
+            try {
+                log("Solicitando DOM objetivo a través de proxy CORS...");
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                log("DOM parseado. Rastreando enlaces y activos...");
+
+                // Base URL for relative paths
+                const baseUrl = new URL(url);
+
+                // Extract Links (PDF, DOC, etc.)
+                if (['ALL', 'PDF', 'MEDIA'].includes(filter)) {
+                    const links = doc.querySelectorAll('a[href]');
+                    for (let link of links) {
+                        if (!isRunning) break;
+                        const href = link.getAttribute('href');
+                        if (!href) continue;
+                        
+                        const fullUrl = new URL(href, baseUrl).href;
+                        const ext = fullUrl.split('.').pop().toLowerCase().split('?')[0];
+                        
+                        let match = false;
+                        if (filter === 'ALL' && ['pdf','doc','docx','ppt','pptx','zip','rar'].includes(ext)) match = true;
+                        if (filter === 'PDF' && ['pdf','doc','docx','ppt','pptx'].includes(ext)) match = true;
+                        if (filter === 'MEDIA' && ['mp4','mp3','avi','mkv'].includes(ext)) match = true;
+
+                        if (match) {
+                            assetsFound++;
+                            await downloadAndZip(fullUrl, zip);
+                        }
+                    }
+                }
+
+                // Extract Images
+                if (['ALL', 'IMG'].includes(filter)) {
+                    const imgs = doc.querySelectorAll('img[src]');
+                    for (let img of imgs) {
+                        if (!isRunning) break;
+                        const src = img.getAttribute('src');
+                        if (!src || src.startsWith('data:')) continue;
+                        
+                        const fullUrl = new URL(src, baseUrl).href;
+                        assetsFound++;
+                        await downloadAndZip(fullUrl, zip);
+                    }
+                }
+
+                if (assetsFound === 0) {
+                    log("No se encontraron activos coincidentes con el filtro.", "warn");
+                } else {
+                    log(`Generando paquete ZIP con ${assetsFound} activos...`);
+                    const blob = await zip.generateAsync({ type: "blob" });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `OSINT_Extract_${Date.now()}.zip`;
+                    a.click();
+                    log("Paquete táctico descargado. Misión completada.", "success");
+                }
+
+            } catch (error) {
+                log(`Error crítico en el vector: ${error.message}`, "error");
+                setStatus("FAILED", "failed");
+            } finally {
+                isRunning = false;
+                btnStart.textContent = "INICIAR EXTRACCIÓN";
+                btnStart.classList.remove('active');
+                if (statusEl.textContent.includes("RUNNING")) setStatus("COMPLETE", "running");
+            }
+        }
+
+        async function downloadAndZip(fileUrl, zip) {
+            try {
+                // Using proxy for binary files too, though it might fail on large/specific MIME types
+                const proxy = document.getElementById('corsProxy').value;
+                const proxyUrl = proxy + encodeURIComponent(fileUrl);
+                
+                const res = await fetch(proxyUrl);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                
+                const blob = await res.blob();
+                const fileName = fileUrl.split('/').pop().split('?')[0] || 'unknown_file';
+                
+                zip.file(fileName, blob);
+                log(`Activo asegurado: ${fileName}`, "success");
+            } catch (e) {
+                // Fallback: just log the link if binary fetch fails via proxy
+                const fileName = fileUrl.split('/').pop().split('?')[0];
+                zip.file(`${fileName}_link.txt`, fileUrl);
+                log(`Fallo binario, enlace guardado: ${fileName}`, "warn");
+            }
+        }
+    </script>
+</body>
+</html>
