@@ -252,10 +252,19 @@ class OSINTExtractor(ctk.CTk):
                         text=f"● {item[1]}", text_color=item[2]
                     )
                 elif kind == "button":
-                    self.btn_start.configure(
-                        text=item[1],
-                        state="disabled" if item[2] else "normal",
-                    )
+                    if item[1] == "INICIAR EXTRACCIÓN" and not item[2]:
+                        self.btn_start.configure(
+                            text=item[1],
+                            state="normal",
+                            fg_color="#2d2d2d",
+                            hover_color="#3d3d3d",
+                            border_color="#444444",
+                        )
+                    else:
+                        self.btn_start.configure(
+                            text=item[1],
+                            state="disabled" if item[2] else "normal",
+                        )
         except queue.Empty:
             pass
         finally:
