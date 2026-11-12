@@ -3,12 +3,14 @@
 Aplicación de escritorio en Python para recopilar recursos enlazados desde una página web y guardarlos localmente. Incluye una interfaz CustomTkinter y una interfaz web experimental.
 
 **Web demo:** https://tzayadet.github.io/OSINT-Asset-Extractor/  
-La versión web es experimental y usa servicios proxy CORS externos para determinadas solicitudes. No introduzcas URLs privadas, credenciales, cookies ni contenido sensible.
+La versión web es experimental y realiza solicitudes directas desde el navegador. El sitio de destino debe permitir CORS; la demo no utiliza proxies CORS externos ni envía URLs a esos servicios. No introduzcas URLs privadas, credenciales, cookies ni contenido sensible.
 
 ## Componentes
 
 - `OSINT-Asset-Extractor.py`: aplicación de escritorio.
 - `index.html`: interfaz web experimental.
+- `vendor/jszip.min.js`: JSZip 3.10.1 autoalojado.
+- `vendor/JSZip-LICENSE.txt`: licencia de JSZip.
 - `requirements.txt`: dependencias de Python.
 - `.github/workflows/static.yml`: publicación del contenido estático configurado para GitHub Pages.
 
@@ -63,7 +65,7 @@ Utiliza la aplicación únicamente sobre sitios y recursos para los que tengas a
 
 Respeta las condiciones del servicio, los derechos de autor, robots.txt cuando corresponda y los límites de frecuencia. No introduzcas credenciales, cookies de sesión ni información privada.
 
-La interfaz web experimental utiliza servicios proxy CORS de terceros. No envíes por esos servicios contenido privado, autenticado o sensible.
+La interfaz web no elude CORS: solo puede leer sitios que permitan solicitudes desde el navegador. Los archivos ZIP se generan localmente con JSZip 3.10.1, incluido en `vendor/`; no se envían a servicios de terceros.
 
 ## Limitaciones
 
