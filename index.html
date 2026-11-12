@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSINT Asset Extractor // Web Node</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="./vendor/jszip.min.js"></script>
     <style>
         :root {
             --bg-main: #121212; --bg-panel: #1e1e1e; --bg-console: #0d0d0d;
@@ -28,6 +28,8 @@
         .btn { width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: var(--text-main); font-weight: 600; cursor: pointer; border-radius: 4px; margin-bottom: 10px; transition: 0.2s; }
         .btn:hover { background: #3d3d3d; }
         .btn.active { background: #3a1c1c; border-color: var(--accent-red); color: var(--accent-red); }
+        .notice { border: 1px solid #3d4a43; border-radius: 4px; padding: 10px; color: #aab6ad; font-size: 11px; line-height: 1.5; }
+        .notice strong { display: block; color: var(--accent-green); margin-bottom: 4px; letter-spacing: .08em; }
         
         /* Console */
         .console-header { height: 40px; background: #1a1a1a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid var(--border); }
@@ -64,11 +66,10 @@
             <option value="MEDIA">ENLACES MEDIA</option>
         </select>
 
-        <label>Proxy CORS (Navegador)</label>
-        <select id="corsProxy">
-            <option value="https://api.allorigins.win/raw?url=">AllOrigins (Default)</option>
-            <option value="https://corsproxy.io/?">CorsProxy.io</option>
-        </select>
+        <div class="notice">
+            <strong>FETCH DIRECTO</strong>
+            <span>El sitio objetivo debe permitir CORS. No se envían URLs ni archivos a proxies externos.</span>
+        </div>
 
         <div style="flex: 1;"></div>
         
@@ -86,6 +87,7 @@
 
     <script>
         let isRunning = false;
+        let activeController = null;
         const consoleEl = document.getElementById('console');
         const statusEl = document.getElementById('statusIndicator');
         const btnStart = document.getElementById('btnStart');
@@ -108,9 +110,21 @@
             statusEl.className = `status ${cls}`;
         }
 
+        function parseHttpUrl(value) {
+            try {
+                const parsed = new URL(value);
+                if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+                if (!parsed.hostname || parsed.username || parsed.password) return null;
+                return parsed;
+            } catch {
+                return null;
+            }
+        }
+
         async function toggleTask() {
             if (isRunning) {
                 isRunning = false;
+                if (activeController) activeController.abort();
                 btnStart.textContent = "INICIAR EXTRACCIÓN";
                 btnStart.classList.remove('active');
                 setStatus("ABORTED", "failed");
@@ -119,7 +133,10 @@
             }
 
             const url = document.getElementById('targetUrl').value.trim();
-            if (!url) { log("URL objetivo no definida.", "error"); return; }
+            if (!parseHttpUrl(url)) {
+                log("Introduce una URL HTTP o HTTPS válida, sin credenciales.", "error");
+                return;
+            }
 
             isRunning = true;
             btnStart.textContent = "DETENER PROCESO";
@@ -131,108 +148,124 @@
 
         async function executeExtraction(url) {
             const filter = document.getElementById('fileType').value;
-            const proxy = document.getElementById('corsProxy').value;
-            const proxyUrl = proxy + encodeURIComponent(url);
-            
-            log(`Iniciando vector de extracción: ${url}`);
-            log(`Filtro: ${filter} | Proxy: Activo`);
+            const baseUrl = parseHttpUrl(url);
+            if (!baseUrl) throw new Error('URL HTTP/HTTPS no válida.');
 
+            activeController = new AbortController();
+            const signal = activeController.signal;
             const zip = new JSZip();
             let assetsFound = 0;
 
+            log(`Iniciando extracción directa: ${baseUrl.origin}${baseUrl.pathname}`);
+            log(`Filtro: ${filter} | Proxy externo: desactivado`);
+
             try {
-                log("Solicitando DOM objetivo a través de proxy CORS...");
-                const response = await fetch(proxyUrl);
+                log("Solicitando DOM directamente al sitio. CORS debe estar habilitado...");
+                const response = await fetch(baseUrl.href, {
+                    mode: 'cors',
+                    credentials: 'omit',
+                    signal
+                });
                 if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-                
+
                 const html = await response.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
-                
                 log("DOM parseado. Rastreando enlaces y activos...");
 
-                // Base URL for relative paths
-                const baseUrl = new URL(url);
-
-                // Extract Links (PDF, DOC, etc.)
                 if (['ALL', 'PDF', 'MEDIA'].includes(filter)) {
                     const links = doc.querySelectorAll('a[href]');
-                    for (let link of links) {
+                    for (const link of links) {
                         if (!isRunning) break;
                         const href = link.getAttribute('href');
                         if (!href) continue;
-                        
-                        const fullUrl = new URL(href, baseUrl).href;
-                        const ext = fullUrl.split('.').pop().toLowerCase().split('?')[0];
-                        
-                        let match = false;
-                        if (filter === 'ALL' && ['pdf','doc','docx','ppt','pptx','zip','rar'].includes(ext)) match = true;
-                        if (filter === 'PDF' && ['pdf','doc','docx','ppt','pptx'].includes(ext)) match = true;
-                        if (filter === 'MEDIA' && ['mp4','mp3','avi','mkv'].includes(ext)) match = true;
 
-                        if (match) {
+                        const candidate = new URL(href, baseUrl);
+                        if (!['http:', 'https:'].includes(candidate.protocol)) continue;
+                        const fullUrl = candidate.href;
+                        const ext = candidate.pathname.split('.').pop().toLowerCase();
+
+                        const matches =
+                            (filter === 'ALL' && ['pdf','doc','docx','ppt','pptx','zip','rar'].includes(ext)) ||
+                            (filter === 'PDF' && ['pdf','doc','docx','ppt','pptx'].includes(ext)) ||
+                            (filter === 'MEDIA' && ['mp4','mp3','avi','mkv'].includes(ext));
+
+                        if (matches) {
                             assetsFound++;
-                            await downloadAndZip(fullUrl, zip);
+                            await downloadAndZip(fullUrl, zip, signal);
                         }
                     }
                 }
 
-                // Extract Images
                 if (['ALL', 'IMG'].includes(filter)) {
-                    const imgs = doc.querySelectorAll('img[src]');
-                    for (let img of imgs) {
+                    const images = doc.querySelectorAll('img[src]');
+                    for (const image of images) {
                         if (!isRunning) break;
-                        const src = img.getAttribute('src');
+                        const src = image.getAttribute('src');
                         if (!src || src.startsWith('data:')) continue;
-                        
-                        const fullUrl = new URL(src, baseUrl).href;
+
+                        const candidate = new URL(src, baseUrl);
+                        if (!['http:', 'https:'].includes(candidate.protocol)) continue;
                         assetsFound++;
-                        await downloadAndZip(fullUrl, zip);
+                        await downloadAndZip(candidate.href, zip, signal);
                     }
                 }
+
+                if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
 
                 if (assetsFound === 0) {
                     log("No se encontraron activos coincidentes con el filtro.", "warn");
                 } else {
-                    log(`Generando paquete ZIP con ${assetsFound} activos...`);
+                    log(`Generando paquete ZIP con ${assetsFound} activos descargados...`);
                     const blob = await zip.generateAsync({ type: "blob" });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `OSINT_Extract_${Date.now()}.zip`;
-                    a.click();
-                    log("Paquete táctico descargado. Misión completada.", "success");
+                    const objectUrl = URL.createObjectURL(blob);
+                    const anchor = document.createElement('a');
+                    anchor.href = objectUrl;
+                    anchor.download = `OSINT_Extract_${Date.now()}.zip`;
+                    anchor.click();
+                    URL.revokeObjectURL(objectUrl);
+                    log("Paquete ZIP generado localmente.", "success");
                 }
-
             } catch (error) {
-                log(`Error crítico en el vector: ${error.message}`, "error");
-                setStatus("FAILED", "failed");
+                if (error.name === 'AbortError') {
+                    log("Solicitud cancelada por el operador.", "warn");
+                    setStatus("ABORTED", "failed");
+                } else {
+                    log(`Error en la extracción directa: ${error.message}`, "error");
+                    setStatus("FAILED", "failed");
+                }
             } finally {
                 isRunning = false;
+                activeController = null;
                 btnStart.textContent = "INICIAR EXTRACCIÓN";
                 btnStart.classList.remove('active');
                 if (statusEl.textContent.includes("RUNNING")) setStatus("COMPLETE", "running");
             }
         }
 
-        async function downloadAndZip(fileUrl, zip) {
+        async function downloadAndZip(fileUrl, zip, signal) {
+            const parsed = parseHttpUrl(fileUrl);
+            if (!parsed) {
+                log("Recurso omitido: URL HTTP/HTTPS no válida.", "warn");
+                return;
+            }
+
             try {
-                // Using proxy for binary files too, though it might fail on large/specific MIME types
-                const proxy = document.getElementById('corsProxy').value;
-                const proxyUrl = proxy + encodeURIComponent(fileUrl);
-                
-                const res = await fetch(proxyUrl);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                
-                const blob = await res.blob();
-                const fileName = fileUrl.split('/').pop().split('?')[0] || 'unknown_file';
-                
+                const response = await fetch(parsed.href, {
+                    mode: 'cors',
+                    credentials: 'omit',
+                    signal
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const blob = await response.blob();
+                const rawName = parsed.pathname.split('/').pop() || 'asset';
+                const fileName = rawName.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 160) || 'asset';
                 zip.file(fileName, blob);
-                log(`Activo asegurado: ${fileName}`, "success");
-            } catch (e) {
-                // Fallback: just log the link if binary fetch fails via proxy
-                const fileName = fileUrl.split('/').pop().split('?')[0];
-                zip.file(`${fileName}_link.txt`, fileUrl);
-                log(`Fallo binario, enlace guardado: ${fileName}`, "warn");
+                log(`Activo descargado: ${fileName}`, "success");
+            } catch (error) {
+                if (error.name === 'AbortError') throw error;
+                log(`Recurso omitido (CORS o descarga): ${error.message}`, "warn");
             }
         }
     </script>
