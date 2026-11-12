@@ -46,7 +46,10 @@ python OSINT-Asset-Extractor.py
 
 Introduce una URL HTTP/HTTPS, el tipo de recurso y el directorio de salida. La aplicación puede:
 
-- Descargar vídeo o audio mediante `yt-dlp`.
+- Descargar vídeo o audio mediante `yt-dlp` (sin listas de reproducción y con límite de tamaño de 1 GB).
+- Rechazar destinos privados, locales, reservados o no resolubles en las solicitudes HTTP de la página y los recursos DOM.
+- Validar de nuevo cada destino de redirección HTTP antes de seguirlo.
+- Limitar el HTML inicial a 5 MB y cada recurso DOM a 250 MB.
 - Extraer enlaces directos a PDF, presentaciones, documentos y archivos comprimidos.
 - Recoger imágenes referenciadas mediante etiquetas HTML `img`.
 - Evitar sobrescribir nombres de archivo existentes.
@@ -63,7 +66,7 @@ Introduce una URL HTTP/HTTPS, el tipo de recurso y el directorio de salida. La a
 
 ## Uso responsable y seguridad
 
-Utiliza la aplicación únicamente sobre sitios y recursos para los que tengas autorización. El programa no aplica una lista de alcance ni bloquea automáticamente direcciones privadas o internas presentes en los enlaces de la página. No lo utilices con páginas no confiables ni como sustituto de un crawler con controles de alcance.
+Utiliza la aplicación únicamente sobre sitios y recursos para los que tengas autorización. El cliente de escritorio valida las direcciones IP resueltas para las solicitudes HTTP iniciales, los recursos DOM y sus redirecciones, y rechaza destinos no públicos. Esta validación no fija la resolución DNS a la conexión (no elimina por completo el riesgo de DNS rebinding) y no constituye un sandbox. La extracción multimedia delegada a yt-dlp usa sus propios mecanismos de red; no debe tratarse como un control de alcance exhaustivo. La demo web tampoco comparte exactamente los mismos controles de red del cliente de escritorio.
 
 Respeta las condiciones del servicio, los derechos de autor, robots.txt cuando corresponda y los límites de frecuencia. No introduzcas credenciales, cookies de sesión ni información privada.
 
@@ -72,6 +75,16 @@ La interfaz web no elude CORS: solo puede leer sitios que permitan solicitudes d
 ## Limitaciones
 
 Es una utilidad de escritorio experimental, no una plataforma de inteligencia, un crawler exhaustivo ni un sistema de adquisición forense. Los recursos recogidos no se validan por autenticidad ni seguridad.
+
+
+## Pruebas
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q .
+```
+
+Las pruebas de `asset_security.py` cubren URLs privadas, loopback, link-local, credenciales embebidas, DNS mixto y destinos públicos.
 
 ## Licencia
 
