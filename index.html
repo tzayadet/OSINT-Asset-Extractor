@@ -191,8 +191,7 @@
                             (filter === 'MEDIA' && ['mp4','mp3','avi','mkv'].includes(ext));
 
                         if (matches) {
-                            assetsFound++;
-                            await downloadAndZip(fullUrl, zip, signal);
+                            if (await downloadAndZip(fullUrl, zip, signal)) assetsFound++;
                         }
                     }
                 }
@@ -206,8 +205,7 @@
 
                         const candidate = new URL(src, baseUrl);
                         if (!['http:', 'https:'].includes(candidate.protocol)) continue;
-                        assetsFound++;
-                        await downloadAndZip(candidate.href, zip, signal);
+                        if (await downloadAndZip(candidate.href, zip, signal)) assetsFound++;
                     }
                 }
 
@@ -263,9 +261,11 @@
                 const fileName = rawName.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 160) || 'asset';
                 zip.file(fileName, blob);
                 log(`Activo descargado: ${fileName}`, "success");
+                return true;
             } catch (error) {
                 if (error.name === 'AbortError') throw error;
                 log(`Recurso omitido (CORS o descarga): ${error.message}`, "warn");
+                return false;
             }
         }
     </script>
