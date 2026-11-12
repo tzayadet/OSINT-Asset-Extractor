@@ -1,6 +1,8 @@
-# OSINT Asset Extractor
+# OSINT Asset Collection Workbench
 
-Aplicación de escritorio en Python para recopilar recursos enlazados desde una página web y guardarlos localmente. Incluye una interfaz CustomTkinter y una interfaz web experimental.
+**Repository:** OSINT-Asset-Extractor
+
+Aplicación de escritorio en Python para recopilar recursos públicos enlazados desde una URL autorizada y guardarlos localmente. Incluye una interfaz CustomTkinter y una interfaz web experimental.
 
 **Web demo:** https://tzayadet.github.io/OSINT-Asset-Extractor/  
 La versión web es experimental y realiza solicitudes directas desde el navegador. El sitio de destino debe permitir CORS; la demo no utiliza proxies CORS externos ni envía URLs a esos servicios. No introduzcas URLs privadas, credenciales, cookies ni contenido sensible.
