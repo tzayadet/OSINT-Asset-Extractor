@@ -17,6 +17,8 @@ import requests
 import yt_dlp
 from bs4 import BeautifulSoup
 
+from asset_security import validate_public_http_url
+
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
@@ -33,6 +35,9 @@ EXTENSIONS = {
     "DOC": (".doc", ".docx", ".xls", ".xlsx", ".zip", ".rar"),
 }
 ALL_EXTENSIONS = tuple(ext for values in EXTENSIONS.values() for ext in values)
+MAX_PAGE_BYTES = 5 * 1024 * 1024
+MAX_ASSET_BYTES = 250 * 1024 * 1024
+MAX_REDIRECTS = 5
 
 
 class OSINTExtractor(ctk.CTk):
@@ -281,6 +286,36 @@ class OSINTExtractor(ctk.CTk):
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
+    @staticmethod
+    def _safe_get(url, *, headers, timeout, stream=False):
+        """Request an HTTP resource while validating every redirect destination."""
+        current_url = url
+        redirect_codes = {301, 302, 303, 307, 308}
+
+        for _ in range(MAX_REDIRECTS + 1):
+            validate_public_http_url(current_url)
+            response = requests.get(
+                current_url,
+                headers=headers,
+                timeout=timeout,
+                stream=stream,
+                allow_redirects=False,
+            )
+            if response.status_code not in redirect_codes:
+                return response
+
+            location = response.headers.get("Location")
+            response.close()
+            if not location:
+                raise requests.TooManyRedirects(
+                    "Redirect response did not include a Location header."
+                )
+            current_url = urljoin(current_url, location)
+
+        raise requests.TooManyRedirects(
+            f"More than {MAX_REDIRECTS} redirects were encountered."
+        )
+
     def _toggle_task(self):
         if self.is_running:
             if not self.stop_event.is_set():
@@ -344,6 +379,7 @@ class OSINTExtractor(ctk.CTk):
         timeout = config["timeout"]
 
         try:
+            validate_public_http_url(url)
             Path(output_dir).mkdir(parents=True, exist_ok=True)
             self._log(f"Iniciando extracción autorizada: {url}")
             self._log(
@@ -364,6 +400,10 @@ class OSINTExtractor(ctk.CTk):
                     "quiet": True,
                     "no_warnings": True,
                     "socket_timeout": timeout,
+                    "noplaylist": True,
+                    "max_filesize": 1024 * 1024 * 1024,
+                    "restrictfilenames": True,
+                    "nooverwrites": True,
                     "progress_hooks": [cancel_hook],
                 }
                 try:
@@ -397,13 +437,27 @@ class OSINTExtractor(ctk.CTk):
 
     def _extract_page_assets(self, url, file_type, output_dir, timeout):
         self._log("Analizando enlaces de la página...")
-        response = requests.get(
+        with self._safe_get(
             url,
             headers={"User-Agent": USER_AGENT},
             timeout=timeout,
-        )
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+            page_content = bytearray()
+            for chunk in response.iter_content(chunk_size=65536):
+                if self.stop_event.is_set():
+                    return
+                if not chunk:
+                    continue
+                if len(page_content) + len(chunk) > MAX_PAGE_BYTES:
+                    raise ValueError(
+                        f"La página supera el límite de {MAX_PAGE_BYTES // (1024 * 1024)} MB."
+                    )
+                page_content.extend(chunk)
+            page_url = response.url
+
+        soup = BeautifulSoup(bytes(page_content), "html.parser")
 
         extensions = (
             ALL_EXTENSIONS if file_type == "ALL" else EXTENSIONS.get(file_type, ())
@@ -411,14 +465,14 @@ class OSINTExtractor(ctk.CTk):
         candidates = set()
 
         for link in soup.find_all("a", href=True):
-            asset_url = urljoin(url, link["href"])
+            asset_url = urljoin(page_url, link["href"])
             path = urlparse(asset_url).path.lower()
             if path.endswith(extensions):
                 candidates.add(asset_url)
 
         if file_type in {"ALL", "IMG"}:
             for image in soup.find_all("img", src=True):
-                candidates.add(urljoin(url, image["src"]))
+                candidates.add(urljoin(page_url, image["src"]))
 
         downloaded = 0
         for asset_url in sorted(candidates):
@@ -433,11 +487,13 @@ class OSINTExtractor(ctk.CTk):
         )
 
     def _download_file(self, file_url, output_dir, timeout):
-        parsed = urlparse(file_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            self._log("Recurso omitido: esquema de URL no permitido.", "WARN")
+        try:
+            validate_public_http_url(file_url)
+        except ValueError as exc:
+            self._log(f"Recurso omitido por alcance de red: {exc}", "WARN")
             return False
 
+        parsed = urlparse(file_url)
         filename = os.path.basename(parsed.path)
         filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._")
         if not filename or "." not in filename:
@@ -451,26 +507,41 @@ class OSINTExtractor(ctk.CTk):
             counter += 1
 
         try:
-            with requests.get(
+            with self._safe_get(
                 file_url,
                 headers={"User-Agent": USER_AGENT},
                 stream=True,
                 timeout=timeout,
             ) as response:
                 response.raise_for_status()
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > MAX_ASSET_BYTES:
+                    self._log(
+                        f"Recurso omitido: supera el límite de {MAX_ASSET_BYTES // (1024 * 1024)} MB.",
+                        "WARN",
+                    )
+                    return False
+
+                downloaded_bytes = 0
                 with output_path.open("wb") as handle:
                     for chunk in response.iter_content(chunk_size=8192):
                         if self.stop_event.is_set():
                             handle.close()
                             output_path.unlink(missing_ok=True)
                             return False
-                        if chunk:
-                            handle.write(chunk)
+                        if not chunk:
+                            continue
+                        downloaded_bytes += len(chunk)
+                        if downloaded_bytes > MAX_ASSET_BYTES:
+                            raise ValueError(
+                                f"El recurso supera el límite de {MAX_ASSET_BYTES // (1024 * 1024)} MB."
+                            )
+                        handle.write(chunk)
 
             self._log(f"Recurso descargado: {output_path.name}", "SUCCESS")
             return True
 
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             output_path.unlink(missing_ok=True)
             self._log(f"No se pudo descargar {filename}: {exc}", "ERROR")
             return False
