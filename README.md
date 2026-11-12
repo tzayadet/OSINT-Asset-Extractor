@@ -1,5 +1,7 @@
 # OSINT Asset Collection Workbench
 
+[![Python validation](https://github.com/tzayadet/OSINT-Asset-Extractor/actions/workflows/python-syntax.yml/badge.svg)](https://github.com/tzayadet/OSINT-Asset-Extractor/actions/workflows/python-syntax.yml) [![GitHub Pages](https://github.com/tzayadet/OSINT-Asset-Extractor/actions/workflows/static.yml/badge.svg)](https://github.com/tzayadet/OSINT-Asset-Extractor/actions/workflows/static.yml)
+
 **Repository:** OSINT-Asset-Extractor
 
 Aplicación de escritorio en Python para recopilar recursos públicos enlazados desde una URL autorizada y guardarlos localmente. Incluye una interfaz CustomTkinter y una interfaz web experimental.
