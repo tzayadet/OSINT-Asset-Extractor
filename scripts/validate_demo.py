@@ -22,5 +22,6 @@ site = root / "site"
 (site / "vendor").mkdir(parents=True, exist_ok=True)
 (site / "index.html").write_text(html, encoding="utf-8")
 (site / "vendor" / "jszip.min.js").write_bytes(library.read_bytes())
+(site / "vendor" / "JSZip-LICENSE.txt").write_bytes(license_file.read_bytes())
 
 print("Static demo validation passed; site/ contains only the browser demo and local JSZip.")
