@@ -38,9 +38,29 @@ class PublicURLValidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_public_http_url(url)
 
-    def test_rejects_invalid_ports(self):
+    def test_rejects_invalid_ports_and_malformed_authorities(self):
+        for url in (
+            "https://example.com:99999/",
+            "http://[::1",
+            "http://",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    validate_public_http_url(url)
+
+    def test_rejects_whitespace_control_characters_and_oversized_urls(self):
+        for url in (
+            "https://example.com/path with spaces",
+            "https://example.com/\\nheader-injection",
+            "https://example.com/" + ("a" * 8192),
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    validate_public_http_url(url)
+
+    def test_rejects_non_string_input(self):
         with self.assertRaises(ValueError):
-            validate_public_http_url("https://example.com:99999/")
+            validate_public_http_url(None)
 
     def test_accepts_public_hostname_when_dns_is_public(self):
         def resolver(host, port, type):
