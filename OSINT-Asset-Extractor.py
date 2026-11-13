@@ -37,6 +37,7 @@ EXTENSIONS = {
 ALL_EXTENSIONS = tuple(ext for values in EXTENSIONS.values() for ext in values)
 MAX_PAGE_BYTES = 5 * 1024 * 1024
 MAX_ASSET_BYTES = 250 * 1024 * 1024
+MAX_ASSET_CANDIDATES = 500
 MAX_REDIRECTS = 5
 
 
@@ -387,6 +388,7 @@ class OSINTExtractor(ctk.CTk):
             )
 
             if file_type in {"ALL", "VIDEO"} and not self.stop_event.is_set():
+                self._log("yt-dlp utiliza conexiones propias; los controles de destino del módulo HTTP no cubren todas sus conexiones.", "WARN")
                 self._log("Iniciando módulo multimedia (yt-dlp)...", "WARN")
 
                 def cancel_hook(_progress):
@@ -396,7 +398,7 @@ class OSINTExtractor(ctk.CTk):
                         )
 
                 ydl_options = {
-                    "outtmpl": str(Path(output_dir) / "%(title)s.%(ext)s"),
+                    "outtmpl": str(Path(output_dir) / "%(extractor)s-%(id)s.%(ext)s"),
                     "quiet": True,
                     "no_warnings": True,
                     "socket_timeout": timeout,
@@ -473,6 +475,14 @@ class OSINTExtractor(ctk.CTk):
         if file_type in {"ALL", "IMG"}:
             for image in soup.find_all("img", src=True):
                 candidates.add(urljoin(page_url, image["src"]))
+
+        if len(candidates) > MAX_ASSET_CANDIDATES:
+            self._log(
+                f"Se han encontrado {len(candidates)} recursos; se procesarán solo los primeros "
+                f"{MAX_ASSET_CANDIDATES}.",
+                "WARN",
+            )
+            candidates = set(sorted(candidates)[:MAX_ASSET_CANDIDATES])
 
         downloaded = 0
         for asset_url in sorted(candidates):
