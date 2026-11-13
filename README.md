@@ -20,7 +20,8 @@ A Python desktop utility for collecting publicly linked resources from an explic
 - Supports PDF, presentation, document and archive links.
 - Collects images referenced by HTML image elements.
 - Supports media downloads through `yt-dlp`, with playlist handling disabled and a size limit.
-- Avoids overwriting existing filenames and supports cooperative cancellation.
+- Caps direct asset discovery at 500 candidates and direct downloads at 250 MB each.
+- Uses stable extractor/ID-based media filenames, limits media downloads to 1 GB and supports cooperative cancellation.
 - Includes a browser experiment subject to the target site's CORS policy.
 
 ## Run locally
@@ -61,9 +62,18 @@ The [web showcase](https://tzayadet.github.io/OSINT-Asset-Extractor/) is an expe
 
 ## Network behaviour and limitations
 
-The desktop client rejects private, local, reserved and unresolved destinations for direct HTTP page/resource requests and revalidates redirects. This does not fully prevent DNS rebinding because validation is not pinned to the eventual connection. The `yt-dlp` media path has its own network behaviour and must not be treated as covered by the same destination controls.
+The desktop client rejects private, local, reserved and unresolved destinations for direct HTTP page/resource requests and revalidates redirects. This does not fully prevent DNS rebinding because validation is not pinned to the eventual connection. The `yt-dlp` media path has its own network behaviour and must not be treated as covered by the same destination controls; the application logs this distinction before starting media extraction.
 
 The application does not execute page JavaScript or crawl an entire site recursively. Collection depends on the source page's structure and the resources it exposes.
+
+## Validation
+
+The Python workflow compiles the application and runs regression tests for URL scope validation, including malformed, oversized and non-public destinations:
+
+```bash
+python -m compileall -q .
+python -m unittest discover -s tests -v
+```
 
 ## Deployment
 
