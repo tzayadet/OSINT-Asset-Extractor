@@ -11,16 +11,29 @@ BLOCKED_SUFFIXES = (
     ".internal",
     ".lan",
 )
+MAX_URL_LENGTH = 8192
 
 
 def validate_public_http_url(url, resolver=None):
-    """Reject non-HTTP URLs, embedded credentials and non-public destinations.
+    """Reject malformed, non-HTTP, credential-bearing and non-public URLs.
 
     Hostnames are resolved and every returned address must be globally routable.
     This is a scope guard, not a network sandbox or DNS-pinning implementation.
     """
-    parsed = urlsplit(url)
-    if parsed.scheme.lower() not in {"http", "https"}:
+    if not isinstance(url, str) or not url or len(url) > MAX_URL_LENGTH:
+        raise ValueError("URL must be a non-empty string within the length limit.")
+    if any(ord(char) < 32 or ord(char) == 127 for char in url) or any(
+        char.isspace() for char in url
+    ):
+        raise ValueError("URL must not contain whitespace or control characters.")
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ValueError("URL syntax is invalid.") from exc
+
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
         raise ValueError("Only HTTP and HTTPS URLs are allowed.")
     if not parsed.hostname:
         raise ValueError("URL must contain a hostname.")
@@ -28,7 +41,7 @@ def validate_public_http_url(url, resolver=None):
         raise ValueError("URLs containing embedded credentials are not allowed.")
 
     try:
-        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        port = parsed.port or (443 if scheme == "https" else 80)
     except ValueError as exc:
         raise ValueError("URL contains an invalid port.") from exc
 
