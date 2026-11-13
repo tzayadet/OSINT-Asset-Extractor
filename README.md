@@ -8,7 +8,7 @@
 A Python desktop utility for collecting publicly linked resources from an explicitly supplied URL. It includes a CustomTkinter interface and an experimental browser-based interface.
 
 <p align="center">
-  <a href="https://tzayadet.github.io/OSINT-Asset-Extractor/"><strong>LIVE WEB SHOWCASE ↗</strong></a> ·
+  <a href="https://tzayadet.github.io/OSINT-Asset-Extractor/"><strong>LIVE DEMO ↗</strong></a> ·
   <a href="https://github.com/tzayadet/OSINT-Asset-Extractor"><strong>SOURCE CODE</strong></a>
 </p>
 
