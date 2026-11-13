@@ -51,7 +51,7 @@ class PublicURLValidationTests(unittest.TestCase):
     def test_rejects_whitespace_control_characters_and_oversized_urls(self):
         for url in (
             "https://example.com/path with spaces",
-            "https://example.com/\\nheader-injection",
+            "https://example.com/\nheader-injection",
             "https://example.com/" + ("a" * 8192),
         ):
             with self.subTest(url=url):
